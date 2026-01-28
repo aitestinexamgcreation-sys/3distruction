@@ -421,7 +421,7 @@
                 // Remove TNT object
                 physicsWorld.removeBody(tnt.body);
                 scene.remove(tnt.mesh);
-                physicsObjects = physicsObjects.filter(o => o !== tnt.objRef);
+                physicsObjects = physicsObjects.filter(o => o !== tnt);
 
                 // Explode
                 createExplosion(blastPos, 40, 25, 1500); // More particles for TNT
@@ -467,7 +467,7 @@
                 if (rocket.body.light) {
                     scene.remove(rocket.body.light);
                 }
-                physicsObjects = physicsObjects.filter(o => o !== rocket.objRef);
+                physicsObjects = physicsObjects.filter(o => o !== rocket);
             };
             
             rocket.body.addEventListener('collide', onCollide);

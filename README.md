@@ -29,4 +29,4 @@ A 3D physics sandbox where you can build structures and destroy them with variou
 ## Technologies
 - Three.js (3D rendering)
 - Cannon.js (physics simulation)
-- Tailwind CSS (UI styling) 
+- Tailwind CSS (UI styling)
