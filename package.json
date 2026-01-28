@@ -1,0 +1,26 @@
+{
+  "name": "3distruction",
+  "version": "1.0.0",
+  "description": "A destruction emulator with beautiful textures and advanced lighting for mobile devices",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx http-server . -p 8080 -c-1",
+    "start": "npx http-server . -p 8080"
+  },
+  "keywords": [
+    "babylon",
+    "webgpu",
+    "destruction",
+    "physics",
+    "3d",
+    "mobile"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@babylonjs/core": "^7.0.0",
+    "@babylonjs/loaders": "^7.0.0",
+    "@babylonjs/materials": "^7.0.0",
+    "http-server": "^14.1.1"
+  }
+}
