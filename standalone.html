@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>3Distruction - Mobile Destruction Emulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 280px;
+        }
+        
+        h1 {
+            font-size: 20px;
+            margin-bottom: 10px;
+            color: #00d4ff;
+        }
+        
+        p {
+            font-size: 12px;
+            margin: 5px 0;
+            line-height: 1.4;
+        }
+        
+        .controls {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            margin: 5px 5px 5px 0;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: scale(1.05);
+        }
+        
+        button:active {
+            transform: scale(0.95);
+        }
+        
+        #stats {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #00d4ff;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h1>🎮 3Distruction</h1>
+        <p><strong>Click anywhere</strong> to shoot a projectile</p>
+        <p><strong>Drag</strong> to rotate view (desktop)</p>
+        <p><strong>Touch</strong> to shoot (mobile)</p>
+        <div class="controls">
+            <button onclick="resetScene()">🔄 Reset</button>
+            <button onclick="addStack()">📦 Add Stack</button>
+            <button onclick="toggleGravity()">🌍 Toggle Gravity</button>
+        </div>
+    </div>
+    
+    <div id="stats">
+        Objects: <span id="objectCount">0</span><br>
+        FPS: <span id="fps">60</span>
+    </div>
+
+    <script>
+        // Simple 3D renderer with physics simulation
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let objects = [];
+        let projectiles = [];
+        let camera = { x: 0, y: 150, z: 500, rotX: 0.3, rotY: 0 };
+        let mouse = { down: false, lastX: 0, lastY: 0 };
+        let gravity = 0.5;
+        let gravityEnabled = true;
+        let frameCount = 0;
+        let lastFpsUpdate = Date.now();
+        
+        // Resize canvas
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        
+        // 3D object class
+        class Box {
+            constructor(x, y, z, w, h, d, color) {
+                this.x = x;
+                this.y = y;
+                this.z = z;
+                this.w = w;
+                this.h = h;
+                this.d = d;
+                this.vx = 0;
+                this.vy = 0;
+                this.vz = 0;
+                this.rx = 0;
+                this.ry = 0;
+                this.rz = 0;
+                this.vrx = 0;
+                this.vry = 0;
+                this.vrz = 0;
+                this.color = color;
+                this.metallic = Math.random();
+                this.roughness = 0.3 + Math.random() * 0.4;
+            }
+            
+            update() {
+                if (gravityEnabled) {
+                    this.vy += gravity;
+                }
+                
+                this.x += this.vx;
+                this.y += this.vy;
+                this.z += this.vz;
+                
+                this.rx += this.vrx;
+                this.ry += this.vry;
+                this.rz += this.vrz;
+                
+                // Floor collision
+                if (this.y > 250) {
+                    this.y = 250;
+                    this.vy *= -0.5;
+                    this.vx *= 0.95;
+                    this.vz *= 0.95;
+                    this.vrx *= 0.9;
+                    this.vry *= 0.9;
+                    this.vrz *= 0.9;
+                }
+                
+                // Friction
+                this.vx *= 0.99;
+                this.vz *= 0.99;
+                this.vrx *= 0.98;
+                this.vry *= 0.98;
+                this.vrz *= 0.98;
+            }
+            
+            applyForce(fx, fy, fz) {
+                this.vx += fx;
+                this.vy += fy;
+                this.vz += fz;
+                this.vrx += (Math.random() - 0.5) * 0.2;
+                this.vry += (Math.random() - 0.5) * 0.2;
+                this.vrz += (Math.random() - 0.5) * 0.2;
+            }
+            
+            draw() {
+                // Simple 3D projection with rotation
+                const vertices = this.getVertices();
+                const projected = vertices.map(v => project(v));
+                
+                // Calculate lighting based on face normal
+                const normal = this.getNormal();
+                const lightDir = normalize({ x: -1, y: -2, z: -1 });
+                const lightIntensity = Math.max(0, -dot(normal, lightDir));
+                
+                // PBR-like shading
+                const ambient = 0.3;
+                const diffuse = lightIntensity * 0.6;
+                const specular = Math.pow(lightIntensity, 20) * (1 - this.roughness);
+                
+                const totalLight = Math.min(1, ambient + diffuse + specular);
+                
+                const r = parseInt(this.color.substr(1, 2), 16);
+                const g = parseInt(this.color.substr(3, 2), 16);
+                const b = parseInt(this.color.substr(5, 2), 16);
+                
+                const litR = Math.floor(r * totalLight + specular * 255 * this.metallic);
+                const litG = Math.floor(g * totalLight + specular * 255 * this.metallic);
+                const litB = Math.floor(b * totalLight + specular * 255 * this.metallic);
+                
+                ctx.fillStyle = `rgb(${litR}, ${litG}, ${litB})`;
+                ctx.strokeStyle = `rgba(255, 255, 255, ${specular * 0.5})`;
+                ctx.lineWidth = 2;
+                
+                // Draw faces
+                const faces = [
+                    [0, 1, 2, 3], // front
+                    [4, 5, 6, 7], // back
+                    [0, 1, 5, 4], // top
+                    [2, 3, 7, 6], // bottom
+                    [0, 3, 7, 4], // left
+                    [1, 2, 6, 5]  // right
+                ];
+                
+                faces.forEach(face => {
+                    ctx.beginPath();
+                    ctx.moveTo(projected[face[0]].x, projected[face[0]].y);
+                    for (let i = 1; i < face.length; i++) {
+                        ctx.lineTo(projected[face[i]].x, projected[face[i]].y);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                });
+            }
+            
+            getVertices() {
+                const hw = this.w / 2, hh = this.h / 2, hd = this.d / 2;
+                const corners = [
+                    { x: -hw, y: -hh, z: -hd },
+                    { x: hw, y: -hh, z: -hd },
+                    { x: hw, y: hh, z: -hd },
+                    { x: -hw, y: hh, z: -hd },
+                    { x: -hw, y: -hh, z: hd },
+                    { x: hw, y: -hh, z: hd },
+                    { x: hw, y: hh, z: hd },
+                    { x: -hw, y: hh, z: hd }
+                ];
+                
+                return corners.map(c => {
+                    let p = rotatePoint(c, this.rx, this.ry, this.rz);
+                    p.x += this.x;
+                    p.y += this.y;
+                    p.z += this.z;
+                    return p;
+                });
+            }
+            
+            getNormal() {
+                return { x: Math.sin(this.ry), y: Math.sin(this.rx), z: Math.cos(this.ry) };
+            }
+        }
+        
+        // Helper functions
+        function rotatePoint(p, rx, ry, rz) {
+            let x = p.x, y = p.y, z = p.z;
+            
+            // Rotate X
+            let y1 = y * Math.cos(rx) - z * Math.sin(rx);
+            let z1 = y * Math.sin(rx) + z * Math.cos(rx);
+            y = y1; z = z1;
+            
+            // Rotate Y
+            let x1 = x * Math.cos(ry) + z * Math.sin(ry);
+            z1 = -x * Math.sin(ry) + z * Math.cos(ry);
+            x = x1; z = z1;
+            
+            // Rotate Z
+            x1 = x * Math.cos(rz) - y * Math.sin(rz);
+            y1 = x * Math.sin(rz) + y * Math.cos(rz);
+            
+            return { x: x1, y: y1, z: z1 };
+        }
+        
+        function project(p) {
+            const scale = 400 / (p.z - camera.z + 400);
+            return {
+                x: (p.x - camera.x) * scale + width / 2,
+                y: (p.y - camera.y) * scale + height / 2,
+                z: p.z
+            };
+        }
+        
+        function normalize(v) {
+            const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+            return { x: v.x / len, y: v.y / len, z: v.z / len };
+        }
+        
+        function dot(a, b) {
+            return a.x * b.x + a.y * b.y + a.z * b.z;
+        }
+        
+        // Create initial scene
+        function createStack(x, z, layers = 5) {
+            const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
+            for (let i = 0; i < layers; i++) {
+                for (let j = 0; j < 3; j++) {
+                    const box = new Box(
+                        x + (j - 1) * 40,
+                        200 - i * 32,
+                        z,
+                        30, 30, 30,
+                        colors[(i + j) % colors.length]
+                    );
+                    objects.push(box);
+                }
+            }
+        }
+        
+        function resetScene() {
+            objects = [];
+            projectiles = [];
+            createStack(0, 0);
+        }
+        
+        function addStack() {
+            const x = (Math.random() - 0.5) * 200;
+            const z = (Math.random() - 0.5) * 200;
+            createStack(x, z, 3);
+        }
+        
+        function toggleGravity() {
+            gravityEnabled = !gravityEnabled;
+        }
+        
+        function shoot(screenX, screenY) {
+            const dx = screenX - width / 2;
+            const dy = screenY - height / 2;
+            
+            const projectile = new Box(
+                camera.x,
+                camera.y - 100,
+                camera.z - 100,
+                10, 10, 10,
+                '#ffff00'
+            );
+            
+            const speed = 20;
+            projectile.vx = dx * 0.05;
+            projectile.vy = dy * 0.05;
+            projectile.vz = -speed;
+            
+            projectiles.push(projectile);
+        }
+        
+        // Animation loop
+        function animate() {
+            ctx.fillStyle = '#0a0a14';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Draw floor
+            ctx.fillStyle = '#1a1a2e';
+            const floorY = project({ x: 0, y: 250, z: 0 }).y;
+            ctx.fillRect(0, floorY, width, height - floorY);
+            
+            // Update and draw objects
+            objects.forEach(obj => {
+                obj.update();
+                obj.draw();
+            });
+            
+            // Update projectiles
+            projectiles = projectiles.filter(p => {
+                p.update();
+                p.draw();
+                
+                // Check collision with objects
+                objects.forEach(obj => {
+                    const dx = p.x - obj.x;
+                    const dy = p.y - obj.y;
+                    const dz = p.z - obj.z;
+                    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                    
+                    if (dist < 30) {
+                        obj.applyForce(p.vx * 0.5, p.vy * 0.5, p.vz * 0.5);
+                        p.vy = 100; // Remove projectile
+                    }
+                });
+                
+                return p.z > -1000 && p.y < 500;
+            });
+            
+            // Update stats
+            frameCount++;
+            if (Date.now() - lastFpsUpdate > 1000) {
+                document.getElementById('fps').textContent = frameCount;
+                frameCount = 0;
+                lastFpsUpdate = Date.now();
+            }
+            
+            document.getElementById('objectCount').textContent = objects.length + projectiles.length;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // Event handlers
+        canvas.addEventListener('mousedown', (e) => {
+            mouse.down = true;
+            mouse.lastX = e.clientX;
+            mouse.lastY = e.clientY;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (mouse.down) {
+                camera.rotY += (e.clientX - mouse.lastX) * 0.005;
+                camera.rotX += (e.clientY - mouse.lastY) * 0.005;
+                camera.rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotX));
+                mouse.lastX = e.clientX;
+                mouse.lastY = e.clientY;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            mouse.down = false;
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            if (!mouse.down) {
+                shoot(e.clientX, e.clientY);
+            }
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            shoot(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: false });
+        
+        window.addEventListener('resize', resize);
+        
+        // Initialize
+        resize();
+        resetScene();
+        animate();
+    </script>
+</body>
+</html>
