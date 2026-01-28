@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Physics Sandbox</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+        }
+        #sandbox-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+        canvas {
+            display: block;
+        }
+        /* Custom modal for messages */
+        #message-modal {
+            transition: opacity 0.3s ease-in-out;
+        }
+        .tool-btn {
+            @apply w-full text-left px-4 py-3 text-sm font-medium text-gray-200 bg-gray-700 rounded-lg hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 transition-all;
+        }
+        .tool-btn.active {
+            @apply bg-blue-600 text-white ring-2 ring-blue-400;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- 3D Canvas Container -->
+    <div id="sandbox-container">
+        <canvas id="sandbox-canvas"></canvas>
+    </div>
+
+    <!-- UI Control Panel -->
+    <div id="controls-panel" class="absolute top-4 left-4 w-64 bg-gray-800 bg-opacity-80 backdrop-blur-sm rounded-lg shadow-2xl p-4 text-white border border-gray-700">
+        <h1 class="text-xl font-bold mb-4 border-b border-gray-600 pb-2">Physics Sandbox</h1>
+        
+        <!-- Tools Section -->
+        <div class="mb-4">
+            <h2 class="text-sm font-semibold text-gray-400 uppercase mb-2">Tools</h2>
+            <div class="space-y-2">
+                <button id="tool-explode" class="tool-btn active">
+                    <span class="text-lg mr-2">💥</span> Explosion
+                </button>
+                <button id="tool-tnt" class="tool-btn">
+                    <span class="text-lg mr-2">🧨</span> Spawn TNT
+                </button>
+                <button id="tool-rocket" class="tool-btn">
+                    <span class="text-lg mr-2">🚀</span> Rocket Strike
+                </button>
+                <button id="tool-nuke" class="tool-btn">
+                    <span class="text-lg mr-2">☢️</span> Nuke
+                </button>
+            </div>
+        </div>
+
+        <!-- Structures Section -->
+        <div class="mb-4">
+            <h2 class="text-sm font-semibold text-gray-400 uppercase mb-2">Structures</h2>
+            <div class="space-y-2">
+                <button id="build-house" class="tool-btn">
+                    <span class="text-lg mr-2">🏠</span> Build House
+                </button>
+                <button id="build-tower" class="tool-btn">
+                    <span class="text-lg mr-2">🏙️</span> Build Tower
+                </button>
+            </div>
+        </div>
+        
+        <!-- Options Section -->
+        <div>
+            <h2 class="text-sm font-semibold text-gray-400 uppercase mb-2">Options</h2>
+            <div class="space-y-2">
+                <button id="toggle-wireframe" class="tool-btn">
+                    <span class="text-lg mr-2">🎨</span> Toggle Wireframe
+                </button>
+                <button id="reset-scene" class="w-full text-left px-4 py-3 text-sm font-medium text-gray-200 bg-red-700 rounded-lg hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500 transition-all">
+                    <span class="text-lg mr-2">🔄</span> Reset Scene
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Message Modal -->
+    <div id="message-modal" class="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 opacity-0 pointer-events-none">
+        <div class="bg-gray-800 rounded-lg shadow-2xl p-6 w-full max-w-sm border border-gray-700">
+            <h2 id="message-title" class="text-xl font-bold text-white mb-3">Notice</h2>
+            <p id="message-text" class="text-gray-300 mb-5">This is a message.</p>
+            <button id="message-ok" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+                Got it
+            </button>
+        </div>
+    </div>
+
+    <!-- Nuke Flash Effect -->
+    <div id="flash-overlay" class="absolute inset-0 bg-white opacity-0 pointer-events-none" style="transition: opacity 0.1s ease-out;"></div>
+
+    <!-- Load ES Modules (Three.js & Cannon.js) -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.skypack.dev/three@0.128.0",
+                "three/addons/controls/OrbitControls.js": "https://cdn.skypack.dev/three@0.128.0/examples/jsm/controls/OrbitControls.js",
+                "cannon-es": "https://cdn.skypack.dev/cannon-es"
+            }
+        }
+    </script>
+
+    <!-- Main Application Logic -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+
+        // --- Global Variables ---
+        let scene, camera, renderer, controls, clock;
+        let physicsWorld;
+        let physicsObjects = []; // Stores { mesh, body }
+        let particleSystems = []; // Stores active particle systems
+        let raycaster, mouse;
+        let groundMesh;
+        let currentTool = 'explode'; // 'explode', 'tnt', 'rocket', 'nuke'
+        let isWireframe = false;
+        let flashOverlay; // For nuke effect
+
+        const canvas = document.getElementById('sandbox-canvas');
+        const container = document.getElementById('sandbox-container');
+
+        // --- UI Elements ---
+        let toolButtons; // Declared here, initialized in init()
+
+        const messageModal = document.getElementById('message-modal');
+        const messageTitle = document.getElementById('message-title');
+        const messageText = document.getElementById('message-text');
+        const messageOk = document.getElementById('message-ok');
+        
+        // --- Initialization ---
+        function init() {
+            // Flash overlay
+            flashOverlay = document.getElementById('flash-overlay');
+            
+            // Clock
+            clock = new THREE.Clock();
+
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2a);
+            scene.fog = new THREE.Fog(0x1a1a2a, 100, 300);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(15, 20, 30);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x606080);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(20, 30, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.top = 30;
+            dirLight.shadow.camera.bottom = -30;
+            dirLight.shadow.camera.left = -30;
+            dirLight.shadow.camera.right = 30;
+            scene.add(dirLight);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Physics
+            physicsWorld = new CANNON.World({
+                gravity: new CANNON.Vec3(0, -9.82, 0)
+            });
+
+            // Ground
+            createGround();
+
+            // Raycasting
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Initial Structure
+            showMessage("Welcome, Tory!", "Click the buttons to add structures, then use the 'Explosion' or 'TNT' tools to interact. You can use your mouse or touch to look around.");
+            buildHouse(0, 0);
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            container.addEventListener('pointerdown', onPointerDown);
+
+            // Initialize UI Elements now that the DOM is loaded
+            toolButtons = {
+                explode: document.getElementById('tool-explode'),
+                tnt: document.getElementById('tool-tnt'),
+                rocket: document.getElementById('tool-rocket'),
+                nuke: document.getElementById('tool-nuke'),
+                house: document.getElementById('build-house'),
+                tower: document.getElementById('build-tower'),
+                wireframe: document.getElementById('toggle-wireframe'),
+                reset: document.getElementById('reset-scene'),
+            };
+
+            setupUI();
+
+            // Start loop
+            animate();
+        }
+
+        // --- Core Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const deltaTime = clock.getDelta();
+            
+            // Step the physics world
+            physicsWorld.step(1 / 60, deltaTime, 3);
+
+            // Update physics objects
+            for (const obj of physicsObjects) {
+                obj.mesh.position.copy(obj.body.position);
+                obj.mesh.quaternion.copy(obj.body.quaternion);
+
+                // Update attached lights (for rocket)
+                if (obj.body.light) {
+                    obj.body.light.position.copy(obj.body.position);
+                }
+            }
+
+            // Update particle systems
+            updateParticles(deltaTime);
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- Physics & Object Creation ---
+        function createGround() {
+            // Three.js
+            const groundGeo = new THREE.PlaneGeometry(1000, 1000);
+            const groundMat = new THREE.MeshPhongMaterial({ color: 0x303040 });
+            groundMesh = new THREE.Mesh(groundGeo, groundMat);
+            groundMesh.rotation.x = -Math.PI / 2;
+            groundMesh.receiveShadow = true;
+            scene.add(groundMesh);
+
+            // Cannon.js
+            const groundShape = new CANNON.Plane();
+            const groundBody = new CANNON.Body({ mass: 0 }); // mass 0 = static
+            groundBody.addShape(groundShape);
+            groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+            physicsWorld.addBody(groundBody);
+        }
+
+        function createBox(pos, size, mass = 1, color = 0xffa07a) {
+            const { x, y, z } = pos;
+            const { w, h, d } = size;
+
+            // Three.js
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mat = new THREE.MeshPhongMaterial({ 
+                color,
+                wireframe: isWireframe 
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+
+            // Cannon.js
+            const shape = new CANNON.Box(new CANNON.Vec3(w * 0.5, h * 0.5, d * 0.5));
+            const body = new CANNON.Body({ mass, shape });
+            body.position.set(x, y, z);
+            physicsWorld.addBody(body);
+
+            // Store for update loop
+            const obj = { mesh, body };
+            physicsObjects.push(obj);
+            
+            // Add reference to mesh for TNT deletion
+            body.mesh = mesh;
+            body.objRef = obj; // Reference to the object in physicsObjects array
+
+            return obj;
+        }
+
+        function createCylinder(pos, radius, height, mass = 1, color = 0xaaaaaa) {
+            const { x, y, z } = pos;
+
+            // Three.js
+            const geo = new THREE.CylinderGeometry(radius, radius, height, 16);
+            const mat = new THREE.MeshPhongMaterial({
+                color,
+                wireframe: isWireframe
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+
+            // Cannon.js
+            // Note: Cannon's Cylinder shape is (radiusTop, radiusBottom, height, numSegments)
+            const shape = new CANNON.Cylinder(radius, radius, height, 16);
+            const body = new CANNON.Body({ mass, shape });
+            body.position.set(x, y, z);
+            physicsWorld.addBody(body);
+
+            // Store for update loop
+            const obj = { mesh, body };
+            physicsObjects.push(obj);
+
+            // Add reference for collision/deletion
+            body.mesh = mesh;
+            body.objRef = obj;
+
+            return obj;
+        }
+
+        // --- Building Functions ---
+        function buildHouse(x, z) {
+            const s = 1.5; // block size
+            const h = s / 2; // half size
+            createBox({ x: x - s, y: h, z: z }, { w: s, h: s, d: s });
+            createBox({ x: x + s, y: h, z: z }, { w: s, h: s, d: s });
+            createBox({ x: x - s, y: h, z: z + s*2 }, { w: s, h: s, d: s });
+            createBox({ x: x + s, y: h, z: z + s*2 }, { w: s, h: s, d: s });
+            
+            createBox({ x: x - s, y: h + s, z: z }, { w: s, h: s, d: s });
+            createBox({ x: x + s, y: h + s, z: z }, { w: s, h: s, d: s });
+            createBox({ x: x - s, y: h + s, z: z + s*2 }, { w: s, h: s, d: s });
+            createBox({ x: x + s, y: h + s, z: z + s*2 }, { w: s, h: s, d: s });
+
+            // Roof
+            createBox({ x: x, y: h + s*2, z: z + s }, { w: s * 2.5, h: s/2, d: s * 3 });
+        }
+
+        function buildTower(x, z) {
+            const s = 2.5;
+            const h = s / 2;
+            for (let i = 0; i < 10; i++) {
+                createBox({ x: x, y: h + i * s, z: z }, { w: s, h: s, d: s }, 5);
+            }
+        }
+
+        // --- Tool Functions ---
+        function createExplosion(position, power = 30, radius = 20, particleCount = 1000, particleColor = 0xffa500) {
+            // Particle effect
+            createParticleExplosion(position, particleCount, particleColor);
+
+            // Physics effect
+            for (const obj of physicsObjects) {
+                const body = obj.body;
+                if (body.mass === 0) continue; // Don't affect static bodies
+
+                const distVec = new CANNON.Vec3();
+                body.position.vsub(position, distVec);
+                const distance = distVec.length();
+
+                if (distance < radius) {
+                    const impulseMag = (1 - (distance / radius)) * power;
+                    distVec.normalize();
+                    const impulse = distVec.scale(impulseMag);
+                    body.applyImpulse(impulse, CANNON.Vec3.ZERO);
+                }
+            }
+        }
+        
+        function spawnTNT(position) {
+            const size = 1;
+            const tnt = createBox(
+                { x: position.x, y: position.y + size * 0.5, z: position.z },
+                { w: size, h: size, d: size },
+                2,
+                0xdd2222 // Red color
+            );
+            
+            // Add a flashing light
+            const light = new THREE.PointLight(0xff0000, 5, 10);
+            light.position.copy(tnt.mesh.position);
+            scene.add(light);
+            
+            let flashes = 6;
+            const flashInterval = setInterval(() => {
+                light.visible = !light.visible;
+                flashes--;
+                if (flashes <= 0) {
+                    clearInterval(flashInterval);
+                }
+            }, 500);
+
+            // Detonate after 3 seconds
+            setTimeout(() => {
+                clearInterval(flashInterval);
+                scene.remove(light);
+                
+                // Get current position before removing
+                const blastPos = new CANNON.Vec3();
+                blastPos.copy(tnt.body.position);
+                
+                // Remove TNT object
+                physicsWorld.removeBody(tnt.body);
+                scene.remove(tnt.mesh);
+                physicsObjects = physicsObjects.filter(o => o !== tnt);
+
+                // Explode
+                createExplosion(blastPos, 40, 25, 1500); // More particles for TNT
+                
+            }, 3000);
+        }
+
+        function spawnRocket(targetPosition) {
+            const radius = 0.5;
+            const height = 3;
+            const startPos = { 
+                x: targetPosition.x, 
+                y: 100, // Start high up
+                z: targetPosition.z 
+            };
+            
+            const rocket = createCylinder(startPos, radius, height, 10, 0xeeeeee); // Heavy, white rocket
+            
+            // Point it downwards by rotating its physics body
+            rocket.body.quaternion.setFromEuler(Math.PI / 2, 0, 0);
+
+            // Give it a strong downward velocity
+            rocket.body.velocity.set(0, -100, 0);
+            
+            // Add a thruster light
+            const light = new THREE.PointLight(0xffa500, 5, 10);
+            light.position.copy(rocket.mesh.position);
+            scene.add(light);
+            
+            // Make light follow rocket
+            rocket.body.light = light; // Attach light to body for update
+
+            const onCollide = (e) => {
+                // Explode
+                const blastPos = new CANNON.Vec3();
+                blastPos.copy(rocket.body.position);
+                createExplosion(blastPos, 50, 20, 1200, 0xffa500); // Rocket explosion
+                
+                // Cleanup
+                rocket.body.removeEventListener('collide', onCollide);
+                physicsWorld.removeBody(rocket.body);
+                scene.remove(rocket.mesh);
+                if (rocket.body.light) {
+                    scene.remove(rocket.body.light);
+                }
+                physicsObjects = physicsObjects.filter(o => o !== rocket);
+            };
+            
+            rocket.body.addEventListener('collide', onCollide);
+        }
+
+        function spawnNuke(position) {
+            // 1. Flash effect
+            flashOverlay.style.opacity = '1';
+            setTimeout(() => {
+                flashOverlay.style.opacity = '0';
+            }, 100); // Short, bright flash
+            
+            // 2. Massive explosion (power, radius, particleCount, particleColor)
+            createExplosion(position, 1000, 150, 5000, 0xffffff); 
+        }
+
+        // --- Particle System ---
+        function createParticleExplosion(position, particleCount = 1000, baseColorHex = 0xffa500) {
+            const particles = new THREE.BufferGeometry();
+            const posArray = new Float32Array(particleCount * 3);
+            const velocities = [];
+            const colors = new Float32Array(particleCount * 3);
+            const baseColor = new THREE.Color(baseColorHex); // Orange
+
+            for (let i = 0; i < particleCount; i++) {
+                // Position (all start at origin)
+                posArray[i * 3 + 0] = position.x;
+                posArray[i * 3 + 1] = position.y;
+                posArray[i * 3 + 2] = position.z;
+
+                // Velocity (random outward direction)
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    Math.random(), // Mostly upwards
+                    (Math.random() - 0.5) * 2
+                ).normalize().multiplyScalar(Math.random() * 15 + 5);
+                velocities.push(velocity);
+
+                // Color
+                const c = baseColor.clone().lerp(new THREE.Color(0xff0000), Math.random() * 0.5); // Add some red
+                colors[i * 3 + 0] = c.r;
+                colors[i * 3 + 1] = c.g;
+                colors[i * 3 + 2] = c.b;
+            }
+
+            particles.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            particles.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const particleMaterial = new THREE.PointsMaterial({
+                size: 0.2,
+                transparent: true,
+                opacity: 0.8,
+                vertexColors: true,
+                blending: THREE.AdditiveBlending,
+                sizeAttenuation: true,
+            });
+
+            const particleSystem = new THREE.Points(particles, particleMaterial);
+            particleSystem.userData = {
+                velocities: velocities,
+                life: 2.0, // seconds
+                gravity: 0.5
+            };
+            
+            scene.add(particleSystem);
+            particleSystems.push(particleSystem);
+        }
+
+        function updateParticles(deltaTime) {
+            for (let i = particleSystems.length - 1; i >= 0; i--) {
+                const system = particleSystems[i];
+                const geom = system.geometry;
+                const props = system.userData;
+                const positions = geom.attributes.position.array;
+
+                props.life -= deltaTime;
+
+                if (props.life <= 0) {
+                    // Remove system
+                    scene.remove(system);
+                    geom.dispose();
+                    system.material.dispose();
+                    particleSystems.splice(i, 1);
+                    continue;
+                }
+
+                // Update material opacity
+                system.material.opacity = (props.life / 2.0) * 0.8;
+                
+                // Update particle positions
+                for (let j = 0; j < props.velocities.length; j++) {
+                    const vel = props.velocities[j];
+                    
+                    // Apply velocity
+                    positions[j * 3 + 0] += vel.x * deltaTime;
+                    positions[j * 3 + 1] += vel.y * deltaTime;
+                    positions[j * 3 + 2] += vel.z * deltaTime;
+                    
+                    // Apply gravity
+                    vel.y -= props.gravity;
+                }
+                
+                geom.attributes.position.needsUpdate = true;
+            }
+        }
+
+        // --- Event Handlers ---
+        function onWindowResize() {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function onPointerDown(event) {
+            // Handle clicks on UI first
+            if (event.target.closest('#controls-panel')) {
+                return;
+            }
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            const x = (event.clientX - rect.left) / rect.width;
+            const y = (event.clientY - rect.top) / rect.height;
+
+            mouse.x = x * 2 - 1;
+            mouse.y = -y * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Find intersection with the ground
+            const intersects = raycaster.intersectObject(groundMesh);
+            
+            if (intersects.length > 0) {
+                const point = intersects[0].point;
+                
+                if (currentTool === 'explode') {
+                    createExplosion(new CANNON.Vec3(point.x, point.y + 0.1, point.z));
+                } else if (currentTool === 'tnt') {
+                    spawnTNT(point);
+                } else if (currentTool === 'rocket') {
+                    spawnRocket(new CANNON.Vec3(point.x, point.y + 0.1, point.z));
+                } else if (currentTool === 'nuke') {
+                    spawnNuke(new CANNON.Vec3(point.x, point.y + 0.1, point.z));
+                }
+            }
+        }
+
+        function setupUI() {
+            // Tool selection
+            toolButtons.explode.addEventListener('click', () => setActiveTool('explode'));
+            toolButtons.tnt.addEventListener('click', () => setActiveTool('tnt'));
+            toolButtons.rocket.addEventListener('click', () => setActiveTool('rocket'));
+            toolButtons.nuke.addEventListener('click', () => setActiveTool('nuke'));
+
+            // Structure building
+            toolButtons.house.addEventListener('click', () => buildHouse(Math.random() * 20 - 10, Math.random() * 20 - 10));
+            toolButtons.tower.addEventListener('click', () => buildTower(Math.random() * 20 - 10, Math.random() * 20 - 10));
+
+            // Options
+            toolButtons.wireframe.addEventListener('click', toggleWireframe);
+            toolButtons.reset.addEventListener('click', resetScene);
+
+            // Modal
+            messageOk.addEventListener('click', hideMessage);
+        }
+
+        function setActiveTool(tool) {
+            currentTool = tool;
+            
+            // Update button styles
+            toolButtons.explode.classList.toggle('active', tool === 'explode');
+            toolButtons.tnt.classList.toggle('active', tool === 'tnt');
+            toolButtons.rocket.classList.toggle('active', tool === 'rocket');
+            toolButtons.nuke.classList.toggle('active', tool === 'nuke');
+        }
+
+        function toggleWireframe() {
+            isWireframe = !isWireframe;
+            for (const obj of physicsObjects) {
+                obj.mesh.material.wireframe = isWireframe;
+            }
+            // Could also toggle groundMesh, but it looks better solid
+            // groundMesh.material.wireframe = isWireframe;
+        }
+
+        function resetScene() {
+            // Remove all dynamic objects
+            for (let i = physicsObjects.length - 1; i >= 0; i--) {
+                const obj = physicsObjects[i];
+                physicsWorld.removeBody(obj.body);
+                scene.remove(obj.mesh);
+                obj.mesh.geometry.dispose();
+                obj.mesh.material.dispose();
+            }
+            physicsObjects = [];
+
+            // Remove particle systems
+            for (let i = particleSystems.length - 1; i >= 0; i--) {
+                const system = particleSystems[i];
+                scene.remove(system);
+                system.geometry.dispose();
+                system.material.dispose();
+            }
+            particleSystems = [];
+
+            // Add back initial structure
+            buildHouse(0, 0);
+        }
+
+        // --- Utility Functions ---
+        function showMessage(title, text) {
+            messageTitle.textContent = title;
+            messageText.textContent = text;
+            messageModal.classList.remove('opacity-0', 'pointer-events-none');
+        }
+
+        function hideMessage() {
+            messageModal.classList.add('opacity-0', 'pointer-events-none');
+        }
+
+        // --- Start ---
+        init();
+
+    </script>
+</body>
+</html>
