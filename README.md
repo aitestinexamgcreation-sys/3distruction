@@ -6,7 +6,7 @@ A beautiful 3D destruction physics simulator with advanced graphics, optimized f
 
 ✨ **Beautiful Graphics**
 - Physically Based Rendering (PBR) materials for realistic surfaces
-- Advanced lighting system with RTX-like reflections
+- Advanced lighting system with multiple light sources and realistic reflections
 - Real-time shadows with PCF filtering
 - HDR tone mapping and post-processing effects
 - Environment reflections and specular highlights
@@ -33,9 +33,17 @@ A beautiful 3D destruction physics simulator with advanced graphics, optimized f
 
 ### Quick Start (No Installation Required)
 
-Simply open `index.html` in a modern web browser that supports WebGL 2.0.
+Simply open `standalone.html` in a modern web browser that supports Canvas 2D.
 
-### Local Development Server
+This version includes:
+- Custom 3D renderer with projection and rotation
+- Built-in physics simulation  
+- No external dependencies
+- Optimized for mobile and desktop
+
+### Advanced Version with Babylon.js
+
+For enhanced graphics with PBR materials, you can use the Babylon.js version:
 
 1. Install dependencies:
 ```bash

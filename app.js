@@ -1,5 +1,5 @@
 // 3Distruction - Mobile Destruction Emulator with Advanced Graphics
-// Using Babylon.js for WebGPU support and PBR materials for RTX-like rendering
+// Using Babylon.js for WebGPU support and PBR materials for realistic rendering
 
 let engine;
 let scene;
@@ -19,7 +19,7 @@ async function init() {
         disableWebGL2Support: false
     });
     
-    // Enable hardware scaling for better mobile performance
+    // Render at native device resolution for better visual quality
     engine.setHardwareScalingLevel(1 / window.devicePixelRatio);
     
     // Create scene
@@ -94,7 +94,7 @@ function setupCamera() {
     camera.angularSensibilityY = 1000;
 }
 
-// Setup advanced lighting system (RTX-like effects)
+// Setup advanced lighting system with multiple light sources
 function setupLighting() {
     // Enable HDR for more realistic lighting
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -216,7 +216,7 @@ function createPBRMaterial(name, color, metallic = 0.3, roughness = 0.6) {
     material.environmentIntensity = 1.0;
     material.directIntensity = 1.0;
     
-    // Enable specular reflections (RTX-like)
+    // Enable specular reflections for realistic highlights
     material.reflectivityColor = new BABYLON.Color3(1, 1, 1);
     material.microSurface = 0.96;
     
@@ -287,7 +287,9 @@ function createDestructibleBox(position, size, layerIndex) {
     );
     
     // Cast and receive shadows
-    scene.shadowGenerator.addShadowCaster(box);
+    if (scene.shadowGenerator) {
+        scene.shadowGenerator.addShadowCaster(box);
+    }
     box.receiveShadows = true;
     
     destructibleObjects.push(box);
@@ -313,14 +315,16 @@ function setupInteractions() {
             }
             
             // Visual feedback
-            const originalColor = pickResult.pickedMesh.material.albedoColor.clone();
-            pickResult.pickedMesh.material.albedoColor = new BABYLON.Color3(1, 1, 1);
-            
-            setTimeout(() => {
-                if (pickResult.pickedMesh.material) {
-                    pickResult.pickedMesh.material.albedoColor = originalColor;
-                }
-            }, 100);
+            if (pickResult.pickedMesh.material && pickResult.pickedMesh.material.albedoColor) {
+                const originalColor = pickResult.pickedMesh.material.albedoColor.clone();
+                pickResult.pickedMesh.material.albedoColor = new BABYLON.Color3(1, 1, 1);
+                
+                setTimeout(() => {
+                    if (pickResult.pickedMesh.material && pickResult.pickedMesh.material.albedoColor) {
+                        pickResult.pickedMesh.material.albedoColor = originalColor;
+                    }
+                }, 100);
+            }
         }
     };
 }
